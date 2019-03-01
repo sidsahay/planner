@@ -22,14 +22,28 @@ enum AdjacencyType {
 	ADJ_NONE
 };
 
+enum Direction {
+	DIR_RIGHT,
+	DIR_DOWN,
+	DIR_LEFT,
+	DIR_UP
+};
+
 struct BlockGroup {
+	Direction direction;
 	AdjacencyType adjacencyType;
 	std::vector<BlockType> blocks;
 	BlockGroup(std::vector<BlockType>&& v) : blocks(std::move(v)) {}
-	BlockGroup(const BlockGroup& bg, AdjacencyType at) : blocks(bg.blocks), adjacencyType(at), adjacentGroup(bg.adjacentGroup), overlappingGroup(bg.overlappingGroup) {}
+	BlockGroup(const BlockGroup& bg, AdjacencyType at, Direction dir) : blocks(bg.blocks), adjacencyType(at), right(bg.right), left(bg.left), direction(dir) {}
 
-	BlockGroup* adjacentGroup = nullptr;
-	BlockGroup* overlappingGroup = nullptr;
+	BlockGroup* right = nullptr;
+	BlockGroup* left = nullptr;
+	BlockGroup* overlapRightGroup = nullptr;
+
+	void AttachGroup(BlockGroup* group) {
+		right = group;
+		group->left = this;
+	}
 };
 
 //given blocks in clockwise ordering
@@ -50,27 +64,27 @@ BlockGroup C_BYsB(A_BYsB);
 BlockGroup C_YbB({BLOCK_YELLOW_BIG, BLOCK_BLUE});
 
 BlockGroup* MakeModelA() {
-	BlockGroup* A = new BlockGroup(A_BR, ADJ_SIDE);
-	A->adjacentGroup = new BlockGroup(A_BYsB, ADJ_FRONT);
-	A->adjacentGroup->adjacentGroup = new BlockGroup(A_YbBYsBYb, ADJ_SIDE);
-	A->adjacentGroup->adjacentGroup->adjacentGroup = new BlockGroup(A_BYsB, ADJ_FRONT);
-	A->adjacentGroup->adjacentGroup->adjacentGroup->adjacentGroup = new BlockGroup(A_RB, ADJ_NONE);
+	BlockGroup* A = new BlockGroup(A_BR, ADJ_SIDE, DIR_RIGHT);
+	A->AttachGroup(new BlockGroup(A_BYsB, ADJ_FRONT, DIR_DOWN));
+	A->right->AttachGroup(new BlockGroup(A_YbBYsBYb, ADJ_SIDE, DIR_LEFT));
+	A->right->right->AttachGroup(new BlockGroup(A_BYsB, ADJ_FRONT, DIR_UP));
+	A->right->right->right->AttachGroup(new BlockGroup(A_RB, ADJ_NONE, DIR_RIGHT));
 	return A;
 }
 
 BlockGroup* MakeModelB() {
-	BlockGroup* B = new BlockGroup(B_Yb, ADJ_SIDE);
-	B->adjacentGroup = new BlockGroup(B_BB, ADJ_FRONT);
-	B->adjacentGroup->adjacentGroup = new BlockGroup(B_YbBBYb, ADJ_SIDE);
-	B->adjacentGroup->adjacentGroup->adjacentGroup = new BlockGroup(B_BYs, ADJ_FRONT);
-	B->adjacentGroup->adjacentGroup->adjacentGroup->adjacentGroup = new BlockGroup(B_R, ADJ_NONE);
+	BlockGroup* B = new BlockGroup(B_Yb, ADJ_SIDE, DIR_RIGHT);
+	B->AttachGroup(new BlockGroup(B_BB, ADJ_FRONT, DIR_DOWN));
+	B->right->AttachGroup(new BlockGroup(B_YbBBYb, ADJ_SIDE, DIR_LEFT));
+	B->right->right->AttachGroup(new BlockGroup(B_BYs, ADJ_FRONT, DIR_UP));
+	B->right->right->right->AttachGroup(new BlockGroup(B_R, ADJ_NONE, DIR_RIGHT));
 	return B;
 }
 
 BlockGroup* MakeModelC() {
-	BlockGroup* C = new BlockGroup(C_BR, ADJ_SIDE);
-	C->adjacentGroup = new BlockGroup(C_BYsB, ADJ_FRONT);
-	C->adjacentGroup->adjacentGroup = new BlockGroup(C_YbB, ADJ_SIDE);
+	BlockGroup* C = new BlockGroup(C_BR, ADJ_SIDE, DIR_DOWN);
+	C->AttachGroup(new BlockGroup(C_BYsB, ADJ_FRONT, DIR_LEFT));
+	C->right->AttachGroup(new BlockGroup(C_YbB, ADJ_SIDE, DIR_UP));
 	return C;
 }
 
@@ -80,14 +94,9 @@ enum Color {
 	COL_BLUE
 };
 
-enum Direction {
-	DIR_RIGHT,
-	DIR_DOWN,
-	DIR_LEFT,
-	DIR_UP
-};
 
-Direction NextDirection(Direction dir) {
+
+Direction RotateClockwise(Direction dir) {
 	switch (dir)
 	{
 	case DIR_RIGHT:
@@ -104,6 +113,45 @@ Direction NextDirection(Direction dir) {
 	}
 }
 
+Direction RotateCounterClockwise(Direction dir) {
+	switch (dir)
+	{
+	case DIR_RIGHT:
+		return DIR_UP;
+
+	case DIR_DOWN:
+		return DIR_RIGHT;
+
+	case DIR_LEFT:
+		return DIR_DOWN;
+
+	case DIR_UP:
+		return DIR_LEFT;
+	}
+}
+
+BlockGroup* RotateClockwiseGroup(BlockGroup* group) {
+	group->direction = RotateClockwise(group->direction);
+	if (group->right != nullptr) {
+		RotateClockwiseGroup(group->right);
+	}
+	if (group->left != nullptr) {
+		RotateClockwiseGroup(group->left);
+	}
+	return group;
+}
+
+BlockGroup* RotateCounterClockwiseGroup(BlockGroup* group) {
+	group->direction = RotateCounterClockwise(group->direction);
+	if (group->right != nullptr) {
+		RotateCounterClockwiseGroup(group->right);
+	}
+	if (group->left != nullptr) {
+		RotateCounterClockwiseGroup(group->left);
+	}
+	return group;
+}
+
 struct RenderBlock {
 	Color color;
 	int xPos;
@@ -112,8 +160,8 @@ struct RenderBlock {
 	int height;
 };
 
-void ToRenderBlocks(std::vector<RenderBlock>& renderBlocks, BlockGroup* group, int startX, int startY, Direction dir) {
-	//start at 0,0
+void ToRenderBlocks(std::vector<RenderBlock>& renderBlocks, BlockGroup* group, int startX, int startY) {
+	Direction dir = group->direction;
 	int currentX = startX;
 	int currentY = startY;
 	const auto& blockTypes = group->blocks;
@@ -172,31 +220,70 @@ void ToRenderBlocks(std::vector<RenderBlock>& renderBlocks, BlockGroup* group, i
 		renderBlocks.push_back(rb);
 	}
 
-	switch (dir)
+	int deltaX = 0;
+	int deltaY = 0;
+
+	switch (group->adjacencyType)
 	{
-	case DIR_RIGHT:
-		currentX -= 1;
-		currentY += 2;
+	case ADJ_SIDE:
+		switch (dir)
+		{
+		case DIR_RIGHT:
+			deltaX = -1;
+			deltaY = 2;
+			break;
+
+		case DIR_LEFT:
+			deltaX = -1;
+			break;
+
+		case DIR_UP:
+			deltaX = 2;
+			deltaY = -1;
+			break;
+
+		case DIR_DOWN:
+			deltaY = -1;
+		default:
+			break;
+		}
 		break;
 
-	case DIR_DOWN:
-		currentX += 1;
-		break;
+	case ADJ_FRONT:
+		switch (dir)
+		{
+		case DIR_DOWN:
+			deltaX = 1;
+			break;
 
-	case DIR_LEFT:
-		currentX -= 1;
-		currentY -= 0;
-		break;
-	case DIR_UP:
-		currentX += 1;
-		currentY -= 2;
-		break;
-	default:
+		case DIR_UP:
+			deltaX = 1;
+			deltaY = -2;
+			break;
+
+		case DIR_RIGHT:
+			deltaY = 1;
+			break;
+
+		case DIR_LEFT:
+			deltaX = -2;
+			deltaY = 1;
+			break;
+
+		default:
+			break;
+		}
 		break;
 	}
 
-	if (group->adjacentGroup != nullptr) {
-		ToRenderBlocks(renderBlocks, group->adjacentGroup, currentX, currentY, NextDirection(dir));
+	currentX += deltaX;
+	currentY += deltaY;
+	
+	if (group->right != nullptr) {
+		ToRenderBlocks(renderBlocks, group->right, currentX, currentY);
+	}
+	if (group->left != nullptr) {
+		ToRenderBlocks(renderBlocks, group->left, currentX, currentY);
 	}
 }
 
@@ -207,7 +294,7 @@ int main(int argc, char** argv)
 	const int SCREEN_WIDTH = 1366;
 	const int SCREEN_HEIGHT = 768;
 
-	auto modelA = MakeModelB();
+	auto modelA = MakeModelA();
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		std::cout << "Could not init SDL2 Video" << std::endl;
@@ -220,7 +307,7 @@ int main(int argc, char** argv)
 
 
 	std::vector<RenderBlock> renderBlocks;
-	ToRenderBlocks(renderBlocks, modelA, 20, 20, DIR_RIGHT);
+	ToRenderBlocks(renderBlocks, RotateCounterClockwiseGroup(modelA), 20, 20);
 
 	SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
 	SDL_RenderClear(renderer);
