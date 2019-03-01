@@ -74,12 +74,140 @@ BlockGroup* MakeModelC() {
 	return C;
 }
 
+enum Color {
+	COL_RED,
+	COL_YELLOW,
+	COL_BLUE
+};
+
+enum Direction {
+	DIR_RIGHT,
+	DIR_DOWN,
+	DIR_LEFT,
+	DIR_UP
+};
+
+Direction NextDirection(Direction dir) {
+	switch (dir)
+	{
+	case DIR_RIGHT:
+		return DIR_DOWN;
+
+	case DIR_DOWN:
+		return DIR_LEFT;
+
+	case DIR_LEFT:
+		return DIR_UP;
+
+	case DIR_UP:
+		return DIR_RIGHT;
+	}
+}
+
+struct RenderBlock {
+	Color color;
+	int xPos;
+	int yPos;
+	int width;
+	int height;
+};
+
+void ToRenderBlocks(std::vector<RenderBlock>& renderBlocks, BlockGroup* group, int startX, int startY, Direction dir) {
+	//start at 0,0
+	int currentX = startX;
+	int currentY = startY;
+	const auto& blockTypes = group->blocks;
+	
+	for (const auto& blockType : blockTypes) {
+		RenderBlock rb;
+		rb.xPos = currentX;
+		rb.yPos = currentY;
+		rb.height = 2;
+
+		switch (blockType)
+		{
+		case BLOCK_BLUE:
+			rb.color = COL_BLUE;
+			rb.width = 1;
+			break;
+
+		case BLOCK_RED:
+			rb.color = COL_RED;
+			rb.width = 2;
+			break;
+
+		case BLOCK_YELLOW_SMALL:
+			rb.color = COL_YELLOW;
+			rb.width = 1;
+			break;
+
+		case BLOCK_YELLOW_BIG:
+			rb.color = COL_YELLOW;
+			rb.width = 2;
+			break;
+		}
+
+		switch (dir)
+		{
+		case DIR_RIGHT:
+			currentX += rb.width;
+			break;
+
+		case DIR_DOWN:
+			std::swap(rb.width, rb.height);
+			currentY += rb.height;
+			break;
+
+		case DIR_LEFT:
+			rb.width *= -1;
+			currentX += rb.width;
+			break;
+
+		case DIR_UP:
+			std::swap(rb.width, rb.height);
+			rb.height *= -1;
+			currentY += rb.height;
+			break;
+		}
+		renderBlocks.push_back(rb);
+	}
+
+	switch (dir)
+	{
+	case DIR_RIGHT:
+		currentX -= 1;
+		currentY += 2;
+		break;
+
+	case DIR_DOWN:
+		currentX += 1;
+		break;
+
+	case DIR_LEFT:
+		currentX -= 1;
+		currentY -= 0;
+		break;
+	case DIR_UP:
+		currentX += 1;
+		currentY -= 2;
+		break;
+	default:
+		break;
+	}
+
+	if (group->adjacentGroup != nullptr) {
+		ToRenderBlocks(renderBlocks, group->adjacentGroup, currentX, currentY, NextDirection(dir));
+	}
+}
+
 int main(int argc, char** argv)
 {
 	SDL_Window* window = NULL;
 	SDL_Renderer* renderer = NULL;
 	const int SCREEN_WIDTH = 1366;
 	const int SCREEN_HEIGHT = 768;
+
+	auto modelA = MakeModelB();
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		std::cout << "Could not init SDL2 Video" << std::endl;
@@ -90,6 +218,38 @@ int main(int argc, char** argv)
 	renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 	SDL_SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff);
 
+
+	std::vector<RenderBlock> renderBlocks;
+	ToRenderBlocks(renderBlocks, modelA, 20, 20, DIR_RIGHT);
+
+	SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+	SDL_RenderClear(renderer);
+
+	for (const auto& block : renderBlocks) {
+		SDL_Rect fillRect = { block.xPos * 20, block.yPos * 20, block.width * 20, block.height * 20 };
+
+		switch (block.color)
+		{
+		case COL_BLUE:
+			SDL_SetRenderDrawColor(renderer, 19, 83, 168, 0xff);
+			break;
+
+		case COL_RED:
+			SDL_SetRenderDrawColor(renderer, 181, 24, 50, 0xff);
+			break;
+
+		case COL_YELLOW:
+			SDL_SetRenderDrawColor(renderer, 235, 225, 150, 0xff);
+			break;
+		}
+
+		SDL_RenderFillRect(renderer, &fillRect);
+		SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
+		SDL_RenderDrawRect(renderer, &fillRect);
+	}
+
+	SDL_RenderPresent(renderer);
+
 	bool quit = false;
 	SDL_Event e;
 
@@ -99,15 +259,6 @@ int main(int argc, char** argv)
 				quit = true;
 			}
 		}
-
-		//Running code
-		SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF); 
-		SDL_RenderClear(renderer);
-
-		SDL_Rect fillRect = { SCREEN_WIDTH / 4, SCREEN_HEIGHT / 4, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }; 
-		SDL_SetRenderDrawColor(renderer, 0xFF, 0x00, 0x00, 0xFF); 
-		SDL_RenderFillRect(renderer, &fillRect);
-		SDL_RenderPresent(renderer);
 	}
 
 	SDL_DestroyRenderer(renderer);
